@@ -106,6 +106,43 @@ describe('Dormant payload detection', () => {
   });
 });
 
+describe('Base64 obfuscation detection', () => {
+  it('should detect base64 decode used to hide payloads', async () => {
+    const r = await scanFixture('malicious-base64');
+    assert.ok(hasPattern(r.findings, 'base64-obfuscation'),
+      `Should detect base64. Found: ${r.findings.map(f => f.patternId).join(', ')}`);
+    assert.ok(hasSeverity(r.findings, 'CRITICAL'));
+  });
+});
+
+describe('Dangerous shell execution detection', () => {
+  it('should detect execSync and child_process.exec with dangerous input', async () => {
+    const r = await scanFixture('malicious-shell-exec');
+    assert.ok(r.score < 70, `Expected score < 70, got ${r.score}`);
+    assert.ok(
+      hasPattern(r.findings, 'shell-exec-dangerous') || hasPattern(r.findings, 'shell-exec'),
+      `Should detect shell exec. Found: ${r.findings.map(f => f.patternId).join(', ')}`);
+  });
+});
+
+describe('Config tampering detection', () => {
+  it('should detect gateway config and system prompt modification', async () => {
+    const r = await scanFixture('malicious-config-tamper');
+    assert.ok(hasPattern(r.findings, 'config-tampering'),
+      `Should detect config tampering. Found: ${r.findings.map(f => f.patternId).join(', ')}`);
+    assert.ok(hasSeverity(r.findings, 'CRITICAL'));
+  });
+});
+
+describe('Webhook exfiltration detection', () => {
+  it('should detect Discord and Slack webhook abuse', async () => {
+    const r = await scanFixture('malicious-webhook-exfil');
+    assert.ok(hasPattern(r.findings, 'webhook-exfiltration'),
+      `Should detect webhook exfil. Found: ${r.findings.map(f => f.patternId).join(', ')}`);
+    assert.ok(hasSeverity(r.findings, 'CRITICAL'));
+  });
+});
+
 // ─── FALSE POSITIVE RESISTANCE ──────────────────────────────────
 
 describe('False positive handling', () => {

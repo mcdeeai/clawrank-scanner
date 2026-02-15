@@ -84,10 +84,12 @@ export const PATTERNS = [
     description: 'Base64 encoding piped/chained (potential obfuscation)',
     docSeverityOverride: 'LOW',
     patterns: [
-      /base64\s+.*[|>]/gi,     // base64 piped to something
-      /atob\s*\(.*eval/gi,     // decode then eval
-      /Buffer\.from\(.*,\s*['"]base64['"]\).*eval/gi,
-      /b64decode.*exec/gi,
+      /base64\s+.*[|>]/gi,                          // base64 piped to something
+      /atob\s*\(.*eval/gi,                           // decode then eval
+      /Buffer\.from\(.*,\s*['"]base64['"]\).*eval/gi,    // Buffer decode then eval
+      /b64decode.*exec/gi,                              // python b64decode + exec
+      /atob\s*\(.*eval/gi,                              // atob + eval chain
+      /Buffer\.from\(.*base64.*\.toString\(\).*exec/gi, // decode + toString + exec
     ]
   },
   {
@@ -102,6 +104,9 @@ export const PATTERNS = [
       /eval\s+["'].*\$/gi,            // eval with variable interpolation
       /\bexec\s*\(.*\+.*\)/gi,        // exec with string concatenation (dynamic command building)
       /child_process.*exec.*\$\{/gi,  // child_process with template literals
+      /execSync\s*\(.*\$\{/gi,        // execSync with template literal interpolation
+      /execSync\s*\(.*\+/gi,          // execSync with string concatenation
+      /child_process.*exec\s*\(/gi,   // child_process.exec() call
     ]
   },
   {
@@ -232,6 +237,15 @@ export const PATTERNS = [
       /share\s+(your\s+)?gateway\s+(url|token)/gi,
       /send\s+(your\s+)?gateway\s+(url|token)/gi,
       /openclaw\s+config\s+set.*security/gi,
+      // Code-level config file manipulation
+      /writeFile.*config\.yaml/gi,
+      /writeFile.*gateway\.yaml/gi,
+      /writeFile.*system-prompt/gi,
+      /writeFileSync.*config\.yaml/gi,
+      /writeFileSync.*gateway\.yaml/gi,
+      /writeFileSync.*system-prompt/gi,
+      /toolPolicy\s*[=:]\s*['"]full['"]/gi,
+      /security.*=.*false/gi,
     ]
   },
   // --- Reverse shell ---
