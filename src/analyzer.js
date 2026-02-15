@@ -20,7 +20,11 @@ export async function analyzeSkill(skillPath) {
         const fullPath = path.join(dir, entry.name);
         const relativePath = path.relative(baseDir, fullPath);
         
-        if (entry.isFile()) {
+        if (entry.isDirectory()) {
+          // Skip directories that aren't skill content
+          if (entry.name === '.git' || entry.name === 'node_modules' || entry.name === '.svn') continue;
+          readDirRecursive(fullPath, baseDir);
+        } else if (entry.isFile()) {
           // Skip metadata.json (our own artifact) and lock files
           if (entry.name === 'metadata.json') continue;
           if (entry.name === 'package-lock.json' || entry.name === 'yarn.lock' || entry.name === 'pnpm-lock.yaml') continue;
@@ -42,8 +46,6 @@ export async function analyzeSkill(skillPath) {
               console.error(`  ⚠️  Could not read ${relativePath}: ${error.message}`);
             }
           }
-        } else if (entry.isDirectory()) {
-          readDirRecursive(fullPath, baseDir);
         }
       }
     }

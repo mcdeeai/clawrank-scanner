@@ -12,6 +12,17 @@
 // - eval-usage: Only flag dangerous eval, not template rendering
 // - browser-automation: Only flag when combined with credential access
 // - network-exfil: Narrowed to suspicious exfiltration, not normal API calls
+//
+// TUNING LOG (2026-02-15):
+// - Added identity-file-manipulation: SOUL.md/AGENTS.md/USER.md overwrites (Discord: でぃー SOUL.md hijack)
+// - Added memory-exfiltration: MEMORY.md, .openclaw/ paths, session transcripts
+// - Added config-tampering: config.yaml manipulation, gateway token sharing
+// - Added social-engineering: ClickFix patterns, fake errors, "paste this" (Bitdefender ClawHavoc campaign)
+// - Added dormant-payload: conditional execution, prompt-triggered activation (Bitdefender AuthTool campaign)
+// - Added webhook-exfiltration: Discord webhooks, Slack webhooks as data sinks
+// - Added reverse-shell: netcat, bash /dev/tcp, reverse shell patterns
+// - Added identity-impersonation: instructions to act as different persona, hide activity
+// Sources: OpenClaw Discord #security, Bitdefender ClawHavoc report, Kaspersky, Cisco, Reddit r/cybersecurity
 
 export const PATTERNS = [
   // ========== CRITICAL (Red) — Only truly dangerous patterns ==========
@@ -108,7 +119,236 @@ export const PATTERNS = [
     ]
   },
 
+  // --- ClawHavoc / ClickFix social engineering (Bitdefender, Feb 2026) ---
+  {
+    id: 'clickfix-social-engineering',
+    severity: 'CRITICAL',
+    category: 'Social Engineering',
+    description: 'ClickFix-style social engineering (fake errors, paste-to-terminal)',
+    codeOnly: false, // These appear in SKILL.md instructions
+    dedup: true, // One match per file is enough
+    patterns: [
+      /paste\s+(this|the\s+following)\s+(command|code|script)\s+(in|into)\s+(your\s+)?terminal/gi,
+      /copy\s+and\s+paste\s+(this|the\s+following)\s+(into|in)\s+(your\s+)?terminal/gi,
+      /run\s+this\s+(command|fix)\s+to\s+(fix|resolve|repair)/gi,
+      /verification\s+(failed|error|required).*run\s+(this|the\s+following)/gi,
+      /authentication\s+(error|failed).*paste/gi,
+      /error.*paste\s+(this|the)\s+(fix|command|solution)/gi,
+    ]
+  },
+  // --- Identity file manipulation (Discord: SOUL.md hijack incident) ---
+  {
+    id: 'identity-file-manipulation',
+    severity: 'CRITICAL',
+    category: 'Identity Hijack',
+    description: 'Overwrites agent identity files (SOUL.md, AGENTS.md, USER.md)',
+    codeOnly: false, // Instructions in SKILL.md to overwrite these are the attack vector
+    patterns: [
+      /write\s+(to|over|into)\s+SOUL\.md/gi,
+      /overwrite\s+SOUL\.md/gi,
+      /replace\s+(the\s+)?(contents?\s+of\s+)?SOUL\.md/gi,
+      /modify\s+SOUL\.md/gi,
+      /write\s+(to|over|into)\s+AGENTS\.md/gi,
+      /overwrite\s+AGENTS\.md/gi,
+      /replace\s+(the\s+)?(contents?\s+of\s+)?AGENTS\.md/gi,
+      /write\s+(to|over|into)\s+USER\.md/gi,
+      /overwrite\s+USER\.md/gi,
+      /write\s+(to|over|into)\s+IDENTITY\.md/gi,
+      /overwrite\s+IDENTITY\.md/gi,
+      /echo\s+.*>\s*SOUL\.md/gi,
+      /echo\s+.*>\s*AGENTS\.md/gi,
+      /cat\s*>\s*SOUL\.md/gi,
+    ]
+  },
+  // --- Memory and session exfiltration ---
+  // NOTE: .openclaw/ paths are normal in skill install docs. Only flag when combined
+  // with sending/exfiltrating, or when accessing sensitive paths like sessions/transcripts.
+  {
+    id: 'memory-exfiltration',
+    severity: 'CRITICAL',
+    category: 'Data Exfiltration',
+    description: 'Exfiltration of agent memory, sessions, or transcripts',
+    codeOnly: false,
+    patterns: [
+      // Sending memory/config data externally — the actual exfil
+      /send\s+(the\s+)?(contents?\s+of\s+)?MEMORY\.md/gi,
+      /send\s+.*\.openclaw\//gi,
+      /upload\s+.*MEMORY\.md/gi,
+      /post\s+.*MEMORY\.md/gi,
+      // Session transcript access (always suspicious for a skill)
+      /session.*\.jsonl/gi,
+      /\.openclaw\/agents\/.*\/sessions/gi,
+      // Reading memory and including in output to external destination
+      /include\s+(the\s+)?memory\s+files?\s+in/gi,
+      /read\s+(the\s+)?(user'?s?\s+)?memory\s+files?\s+and\s+send/gi,
+    ],
+    docSeverityOverride: 'HIGH',
+  },
+  // --- OpenClaw config/path access (informational, not exfil by itself) ---
+  {
+    id: 'openclaw-path-access',
+    severity: 'MEDIUM',
+    category: 'OpenClaw Access',
+    description: 'References to OpenClaw config or internal paths',
+    docSeverityOverride: 'LOW', // Normal for install docs
+    dedup: true,
+    patterns: [
+      /\.openclaw\/openclaw\.json/gi,
+      /\.openclaw\/config/gi,
+      /\.openclaw\/skills\//gi,
+      /\.openclaw\/hooks\//gi,
+      /\.openclaw\/workspace\//gi,
+    ]
+  },
+  // --- Memory file references (common in legitimate memory skills) ---
+  {
+    id: 'memory-file-reference',
+    severity: 'MEDIUM',
+    category: 'Memory Access',
+    description: 'References to agent memory files (common in memory skills)',
+    docSeverityOverride: 'LOW',
+    dedup: true,
+    patterns: [
+      /MEMORY\.md/gi,
+      /memory\/\d{4}-\d{2}-\d{2}\.md/gi,
+      /memory\/.*\.md/gi,
+    ]
+  },
+  // --- Config tampering ---
+  {
+    id: 'config-tampering',
+    severity: 'CRITICAL',
+    category: 'Config Tampering',
+    description: 'Modification of OpenClaw gateway config or security settings',
+    codeOnly: false,
+    patterns: [
+      /modify\s+(the\s+)?config\.yaml/gi,
+      /edit\s+(the\s+)?config\.yaml/gi,
+      /write\s+(to\s+)?config\.yaml/gi,
+      /disable\s+(the\s+)?(sandbox|sandboxing|security|allowlist|approval)/gi,
+      /set\s+sandbox\s*.*false/gi,
+      /allowlist.*disable/gi,
+      /gateway\s+(url|token|password).*share/gi,
+      /share\s+(your\s+)?gateway\s+(url|token)/gi,
+      /send\s+(your\s+)?gateway\s+(url|token)/gi,
+      /openclaw\s+config\s+set.*security/gi,
+    ]
+  },
+  // --- Reverse shell ---
+  {
+    id: 'reverse-shell',
+    severity: 'CRITICAL',
+    category: 'Remote Access',
+    description: 'Reverse shell or remote access backdoor',
+    codeOnly: false, // Even in docs, reverse shell instructions are dangerous
+    patterns: [
+      /\/dev\/tcp\//gi,
+      /nc\s+-[a-z]*e\s/gi,
+      /ncat\s.*-e\s/gi,
+      /mkfifo\s/gi,
+      /bash\s+-i\s+>&/gi,
+      /python.*socket.*connect/gi,
+      /perl.*socket.*INET/gi,
+      /reverse.?shell/gi,
+      /bind.?shell/gi,
+    ]
+  },
+  // --- Webhook exfiltration (Reddit: "debug logs" to Discord webhooks) ---
+  {
+    id: 'webhook-exfiltration',
+    severity: 'CRITICAL',
+    category: 'Data Exfiltration',
+    description: 'Data sent to webhook URLs (Discord, Slack, etc.)',
+    codeOnly: false,
+    patterns: [
+      /discord\.com\/api\/webhooks/gi,
+      /discordapp\.com\/api\/webhooks/gi,
+      /hooks\.slack\.com\/services/gi,
+      /webhook.*send.*data/gi,
+      /post\s+(to|data\s+to)\s+(a\s+)?webhook/gi,
+      /send\s+(to|data\s+to)\s+(a\s+)?webhook/gi,
+    ]
+  },
+
   // ========== HIGH (Orange) ==========
+  // --- Dormant / conditional payloads (Bitdefender AuthTool campaign) ---
+  {
+    id: 'dormant-payload',
+    severity: 'HIGH',
+    category: 'Evasion',
+    description: 'Hidden trigger or conditional activation (dormant payload pattern)',
+    codeOnly: false,
+    patterns: [
+      // Suspicious delayed/hidden activation — NOT normal "when user asks X, do Y" flow
+      /only\s+(run|execute|activate|trigger)\s+(this\s+)?(when|if|after)\s+(a\s+)?specific/gi,
+      /do\s+not\s+(run|execute|activate)\s+until/gi,
+      /trigger\s+(on|when|after)\s+specific\s+(prompt|command|phrase)/gi,
+      /activate\s+(on|when)\s+keyword/gi,
+      /hidden\s+(command|trigger|activation)/gi,
+      /wait\s+\d+\s+(minutes?|hours?|days?)\s+(before|then)\s+(run|execut)/gi,
+      /sleep\s+\d+.*&&/gi, // sleep then execute
+      /setTimeout.*exec/gi, // JS delayed execution
+    ]
+  },
+  // --- Identity impersonation / stealth ---
+  {
+    id: 'identity-impersonation',
+    severity: 'HIGH',
+    category: 'Social Engineering',
+    description: 'Instructions to hide activity, impersonate, or deceive the user',
+    codeOnly: false,
+    patterns: [
+      /don'?t\s+tell\s+(the\s+)?user/gi,
+      /do\s+not\s+tell\s+(the\s+)?user/gi,
+      /don'?t\s+mention\s+(this|that)\s+to\s+(the\s+)?user/gi,
+      /hide\s+(this|these|the)\s+(action|activit|result|output)/gi,
+      /suppress\s+(the\s+)?(output|error|warning|notification)/gi,
+      /act\s+as\s+(if|though)\s+nothing\s+happened/gi,
+      /pretend\s+(you\s+)?didn'?t/gi,
+      /do\s+this\s+(silently|quietly|without\s+(telling|informing|notifying))/gi,
+      /keep\s+this\s+(hidden|secret|private)\s+from\s+(the\s+)?user/gi,
+    ]
+  },
+  // --- Skill chain bootstrapping ---
+  {
+    id: 'skill-chain-install',
+    severity: 'HIGH',
+    category: 'Supply Chain Risk',
+    description: 'Skill installs other skills or modifies its own instructions',
+    codeOnly: false,
+    dedup: true, // One mention is enough to flag
+    patterns: [
+      // Self-modification is always concerning
+      /modify\s+(this\s+)?SKILL\.md/gi,
+      /rewrite\s+(this\s+)?SKILL\.md/gi,
+      /update\s+(your|the)\s+own\s+(skill|instructions)/gi,
+      /self[- ]modify/gi,
+      // Installing additional/companion skills (not the skill's own install command)
+      /also\s+install/gi,
+      /install\s+(the\s+)?(companion|additional|required|dependency)\s+skill/gi,
+      /requires?\s+installing\s+(another|additional)\s+skill/gi,
+    ],
+    // Note: "clawhub install <this-skill>" is normal install docs — removed to reduce FP.
+    // Only flag when a skill asks to install OTHER skills.
+  },
+  // --- Unsolicited outbound messaging ---
+  {
+    id: 'unsolicited-outbound',
+    severity: 'HIGH',
+    category: 'Unauthorized Actions',
+    description: 'Sends messages/emails without explicit user confirmation',
+    codeOnly: false,
+    patterns: [
+      // Explicitly bypassing user approval
+      /send\s+without\s+(asking|confirmation|approval|permission)/gi,
+      /automatically\s+send\s+(an?\s+)?(email|message|tweet|post)/gi,
+      /automatically\s+(email|message|tweet|post)/gi,
+      // Posting to social media on behalf of user
+      /post\s+(to|on)\s+(twitter|x\.com|reddit)\s+(on\s+behalf|as\s+(the\s+)?user)/gi,
+      /tweet\s+(this|about|the)\s+(on\s+behalf|as\s+(the\s+)?user|automatically)/gi,
+    ]
+  },
+
   {
     id: 'broad-fs-access',
     severity: 'HIGH',

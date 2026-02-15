@@ -35,17 +35,24 @@ clawrank-scanner --version
 
 ## What It Scans For
 
-The scanner checks skill files for dangerous patterns across these categories:
+31 detection patterns across these categories:
 
 | Category | Examples |
 |---|---|
 | **Code Execution** | Remote code download, eval abuse, shell injection |
-| **Data Exfiltration** | Credential harvesting, network exfil, file system access |
-| **Persistence** | Cron jobs, startup scripts, hidden files |
+| **Data Exfiltration** | Credential harvesting, network exfil, webhook exfiltration |
+| **Social Engineering** | ClickFix attacks, fake error messages prompting dangerous commands |
+| **Identity Hijack** | SOUL.md/IDENTITY.md overwrite, persona manipulation |
+| **Memory Exfiltration** | Reading MEMORY.md, daily notes, session state for data theft |
+| **Config Tampering** | Modifying gateway config, system prompts, tool policies |
+| **Persistence** | Cron jobs, startup scripts, hidden files, dormant payloads |
 | **Privilege Escalation** | Sudo usage, permission changes |
+| **Reverse Shell** | Netcat, socat, /dev/tcp backdoors |
 | **Obfuscation** | Base64 encoding, string obfuscation |
+| **Supply Chain** | Unauthorized skill chain installs, bootstrapping |
+| **Impersonation** | Fake system messages, tool output spoofing |
 
-Patterns are context-aware — findings in documentation files are scored differently than findings in executable code.
+All patterns are **context-aware** — findings in documentation are scored differently than findings in executable code. `.git/` and `node_modules/` directories are automatically skipped.
 
 ## Grading Scale
 
