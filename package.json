@@ -1,0 +1,41 @@
+{
+  "name": "clawrank-scanner",
+  "version": "0.1.0",
+  "description": "Security scanner for AI agent skill files — detect dangerous patterns, score safety, grade A-F",
+  "type": "module",
+  "main": "src/cli.js",
+  "bin": {
+    "clawrank-scanner": "src/cli.js"
+  },
+  "scripts": {
+    "scrape": "node src/scraper.js",
+    "scan": "node src/cli.js scan-all",
+    "report": "node src/cli.js report",
+    "full": "npm run scrape && npm run scan && npm run report"
+  },
+  "keywords": [
+    "security",
+    "scanner",
+    "openclaw",
+    "clawrank",
+    "ai-agent",
+    "skill-safety",
+    "static-analysis"
+  ],
+  "author": "ClawRank",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mcdeeai/clawrank-scanner.git"
+  },
+  "homepage": "https://clawrank.io",
+  "bugs": {
+    "url": "https://github.com/mcdeeai/clawrank-scanner/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src/"
+  ]
+}
