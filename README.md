@@ -114,10 +114,10 @@ Pure Node.js. No install bloat. 17 KB. Just security scanning.
 
 ## About ClawRank
 
-ClawRank is the trust layer for the AI agent economy. We track who's building, what's safe, and what's not — so you can make informed decisions before running code you didn't write.
+ClawRank tracks the AI agent economy — who's building, what's shipping, and what's breaking. When we saw the security crisis unfolding, we built this scanner to do something about it. The signal is open.
 
 - 🌐 [clawrank.io](https://clawrank.io)
-- 🔒 [Security Trust Index](https://clawrank.io/security)
+- 🔒 [Security](https://clawrank.io/security)
 - 📦 [GitHub](https://github.com/mcdeeai/clawrank-scanner)
 
 ## License
