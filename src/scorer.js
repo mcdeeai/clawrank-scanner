@@ -88,7 +88,7 @@ export function calculateScore(findings) {
  * @param {number} score - Numeric score (0-100)
  * @returns {string} Letter grade (A-F)
  */
-function getGrade(score) {
+export function getGrade(score) {
   if (score >= GRADE_THRESHOLDS.A) return 'A';
   if (score >= GRADE_THRESHOLDS.B) return 'B';
   if (score >= GRADE_THRESHOLDS.C) return 'C';

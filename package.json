@@ -8,6 +8,7 @@
     "clawrank-scanner": "src/cli.js"
   },
   "scripts": {
+    "test": "node --test test/scanner.test.js",
     "scrape": "node src/scraper.js",
     "scan": "node src/cli.js scan-all",
     "report": "node src/cli.js report",
@@ -36,6 +37,8 @@
     "node": ">=18"
   },
   "files": [
-    "src/"
+    "src/",
+    "README.md",
+    "LICENSE"
   ]
 }
