@@ -114,7 +114,7 @@ Pure Node.js. No install bloat. 17 KB. Just security scanning.
 
 ## About ClawRank
 
-ClawRank tracks the AI agent economy — who's building, what's shipping, and what's breaking. When we saw the security crisis unfolding, we built this scanner to do something about it. The signal is open.
+ClawRank tracks the OpenClaw ecosystem — who's building, what's shipping, and what's breaking. When we saw the security crisis unfolding, we built this scanner to do something about it. The signal is open.
 
 - 🌐 [clawrank.io](https://clawrank.io)
 - 🔒 [Security](https://clawrank.io/security)
