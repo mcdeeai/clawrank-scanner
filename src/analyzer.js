@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { PATTERNS, getEffectiveSeverity, isDocFile, KNOWN_SAFE_BINARIES, KNOWN_SAFE_DOMAINS } from './patterns.js';
+import { PATTERNS, getEffectiveSeverity, isDocFile, KNOWN_SAFE_BINARIES, KNOWN_SAFE_DOMAINS, BINARY_DESCRIPTIONS, DOMAIN_DESCRIPTIONS } from './patterns.js';
 
 /**
  * Analyzes a skill directory for security vulnerabilities
@@ -133,52 +133,95 @@ function analyzeFile(filename, content) {
 }
 
 /**
- * Apply known-safe allowlists to findings, reducing severity where appropriate.
- * - subprocess/shell-exec calling known-safe binaries → LOW
- * - network activity to known-safe domains → LOW
- * - package-install for known-safe packages in string literals → LOW
+ * Drop severity by one level (not all the way to LOW).
+ * CRITICAL→HIGH, HIGH→MEDIUM, MEDIUM→LOW, LOW→LOW
+ */
+function dropOneSeverity(severity) {
+  const map = { CRITICAL: 'HIGH', HIGH: 'MEDIUM', MEDIUM: 'LOW', LOW: 'LOW' };
+  return map[severity] || severity;
+}
+
+/**
+ * Apply known-safe allowlists to findings, reducing severity by ONE level where appropriate.
+ * Also adds human-readable context annotations to ALL findings.
  */
 function applyAllowlists(findings, fileContexts) {
   return findings.map(f => {
     const snippet = (f.snippet || '').toLowerCase();
     const matched = (f.matched || '').toLowerCase();
-    // Get surrounding context (5 lines around the finding)
+    // Only check surrounding context (10 lines), NOT the whole file
     const ctx = fileContexts?.[f.file];
-    const context = ctx ? getLineContext(ctx, f.line, 5).toLowerCase() : snippet;
+    const context = ctx ? getLineContext(ctx, f.line, 10).toLowerCase() : snippet;
 
-    // Shell execution calling known-safe binaries (check surrounding context + whole file)
+    // Start with no context annotation
+    let contextAnnotation = '';
+
+    // Shell execution calling known-safe binaries (5-line context only)
     if (f.patternId === 'shell-exec' || f.patternId === 'shell-exec-dangerous') {
-      // Check nearby context first, then whole file for binary references
-      const wholeFile = (ctx || '').toLowerCase();
-      if (invokesKnownSafeBinary(context) || invokesKnownSafeBinary(wholeFile)) {
-        return { ...f, severity: 'LOW', allowlisted: true, allowlistReason: 'known-safe binary' };
+      const safeBin = findKnownSafeBinary(context);
+      if (safeBin) {
+        const desc = BINARY_DESCRIPTIONS[safeBin] || `a known utility (${safeBin})`;
+        contextAnnotation = `This subprocess call targets '${safeBin}', ${desc}. This is a standard pattern for automation skills.`;
+        return { ...f, severity: dropOneSeverity(f.severity), allowlisted: true, allowlistReason: 'known-safe binary', context: contextAnnotation };
+      } else {
+        contextAnnotation = 'This subprocess call executes a dynamically constructed command. Review what gets passed to it.';
       }
     }
 
-    // Network activity to known-safe domains (check context + whole file for domain refs)
+    // Network activity to known-safe domains (5-line context only)
     if (f.patternId === 'network-activity' || f.patternId === 'network-exfil-hardcoded') {
-      const wholeFile = (ctx || '').toLowerCase();
-      if (contactsKnownSafeDomain(context + ' ' + matched) || contactsKnownSafeDomain(wholeFile)) {
-        const newSev = f.patternId === 'network-exfil-hardcoded' ? 'LOW' : 'LOW';
-        return { ...f, severity: newSev, allowlisted: true, allowlistReason: 'known-safe domain' };
+      const safeDomain = findKnownSafeDomain(context + ' ' + matched);
+      if (safeDomain) {
+        const desc = DOMAIN_DESCRIPTIONS[safeDomain] || safeDomain;
+        contextAnnotation = `This network request goes to ${safeDomain}, ${desc}. The skill appears to use a user-configured API key.`;
+        return { ...f, severity: dropOneSeverity(f.severity), allowlisted: true, allowlistReason: 'known-safe domain', context: contextAnnotation };
+      } else {
+        contextAnnotation = 'This network request goes to an unrecognized endpoint. Review what data is being sent.';
       }
     }
 
-    // Package install in string literals (error messages, help text) → LOW
+    // Package install in string literals (error messages, help text) → drop one level
     if (f.patternId === 'package-install') {
       if (isInStringLiteral(snippet) || installsKnownSafePackage(snippet)) {
-        return { ...f, severity: 'LOW', allowlisted: true, allowlistReason: 'known-safe package' };
+        contextAnnotation = 'This package installation appears in a string literal or installs a well-known package.';
+        return { ...f, severity: dropOneSeverity(f.severity), allowlisted: true, allowlistReason: 'known-safe package', context: contextAnnotation };
+      } else {
+        contextAnnotation = 'This installs a package. Verify the package name is legitimate.';
       }
     }
 
     // Cron patterns that are just documentation references
     if (f.patternId === 'cron-creation') {
       if (isInStringLiteral(snippet)) {
-        return { ...f, severity: 'LOW', allowlisted: true, allowlistReason: 'string literal reference' };
+        contextAnnotation = 'This cron reference appears in a string literal, not an actual cron setup.';
+        return { ...f, severity: dropOneSeverity(f.severity), allowlisted: true, allowlistReason: 'string literal reference', context: contextAnnotation };
       }
     }
 
-    return f;
+    // Documentation file context
+    if (isDocFile(f.file)) {
+      if (!contextAnnotation) {
+        const ext = f.file.split('.').pop();
+        contextAnnotation = `This file is documentation (${f.file}). Code examples in docs are not executable.`;
+      }
+    }
+
+    // Credential references
+    if (f.patternId === 'credential-reference' && !contextAnnotation) {
+      contextAnnotation = 'This references environment variables for API keys. This is a standard pattern for user-configured credentials.';
+    }
+
+    // Memory/identity patterns
+    if (f.patternId === 'memory-file-reference' && !contextAnnotation) {
+      contextAnnotation = 'This references agent memory files. Common in memory-management skills but review for exfiltration.';
+    }
+
+    // Default context for anything not annotated
+    if (!contextAnnotation) {
+      contextAnnotation = `Detected ${f.category.toLowerCase()} pattern. Review the code snippet for intent.`;
+    }
+
+    return { ...f, context: contextAnnotation };
   });
 }
 
@@ -193,31 +236,32 @@ function getLineContext(content, lineNum, radius) {
 }
 
 /**
- * Check if a snippet invokes a known-safe binary
+ * Find which known-safe binary is referenced in a snippet. Returns the binary name or null.
  */
-function invokesKnownSafeBinary(snippet) {
-  // Look for known-safe binary names after subprocess/exec calls
+function findKnownSafeBinary(snippet) {
   for (const bin of KNOWN_SAFE_BINARIES) {
-    // Match patterns like: subprocess.run(["bird", ...] or subprocess.run(["yt-dlp"
-    // or exec("bird ...") or child_process ... "git"
     if (snippet.includes(`"${bin}"`) || snippet.includes(`'${bin}'`) ||
         snippet.includes(`["${bin}`) || snippet.includes(`['${bin}`) ||
         snippet.includes(`(${bin} `) || snippet.includes(`("${bin} `)) {
-      return true;
+      return bin;
     }
   }
-  return false;
+  return null;
 }
 
 /**
- * Check if a snippet/match contacts a known-safe domain
+ * Find which known-safe domain is referenced in text. Returns the domain or null.
  */
-function contactsKnownSafeDomain(text) {
+function findKnownSafeDomain(text) {
   for (const domain of KNOWN_SAFE_DOMAINS) {
-    if (text.includes(domain)) return true;
+    if (text.includes(domain)) return domain;
   }
-  return false;
+  return null;
 }
+
+// Legacy compatibility wrappers
+function invokesKnownSafeBinary(snippet) { return findKnownSafeBinary(snippet) !== null; }
+function contactsKnownSafeDomain(text) { return findKnownSafeDomain(text) !== null; }
 
 /**
  * Check if a snippet appears to be inside a string literal (help text, error message)

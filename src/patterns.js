@@ -536,7 +536,7 @@ export const KNOWN_SAFE_BINARIES = new Set([
   'bird', 'curl', 'jq', 'brew', 'git', 'npm', 'node', 'python', 'python3',
   'pip', 'pip3', 'wget', 'yt-dlp', 'ffmpeg', 'ffprobe', 'grep', 'sed', 'awk',
   'cat', 'echo', 'ls', 'find', 'sort', 'uniq', 'wc', 'head', 'tail', 'tr',
-  'date', 'mkdir', 'cp', 'mv', 'rm', 'chmod', 'touch', 'tee', 'xargs',
+  'date', 'mkdir', 'cp', 'mv', 'chmod', 'touch', 'tee', 'xargs',
 ]);
 
 // Domains that are known-safe API endpoints
@@ -551,8 +551,59 @@ export const KNOWN_SAFE_DOMAINS = new Set([
   'youtube.com', 'www.youtube.com',
   'pypi.org', 'files.pythonhosted.org',
   'npmjs.org', 'registry.npmjs.org', 'www.npmjs.com',
-  'localhost', '127.0.0.1',
 ]);
+
+// Human-readable descriptions for known-safe binaries
+export const BINARY_DESCRIPTIONS = {
+  'bird': 'a Twitter/X search CLI tool, standard for research automation skills',
+  'curl': 'a standard HTTP client for making web requests',
+  'jq': 'a JSON processing utility',
+  'brew': 'the macOS Homebrew package manager',
+  'git': 'a version control system',
+  'npm': 'the Node.js package manager',
+  'node': 'the Node.js runtime',
+  'python': 'the Python interpreter',
+  'python3': 'the Python 3 interpreter',
+  'pip': 'a Python package installer',
+  'pip3': 'a Python 3 package installer',
+  'wget': 'a file download utility',
+  'yt-dlp': 'a YouTube video/audio download tool',
+  'ffmpeg': 'a multimedia processing tool',
+  'ffprobe': 'a multimedia stream analyzer',
+  'grep': 'a text search utility',
+  'sed': 'a stream editor',
+  'awk': 'a text processing tool',
+};
+
+// Human-readable descriptions for known-safe domains
+export const DOMAIN_DESCRIPTIONS = {
+  'reddit.com': 'Reddit, a public social media platform',
+  'www.reddit.com': 'Reddit, a public social media platform',
+  'oauth.reddit.com': 'Reddit OAuth API',
+  'api.reddit.com': 'Reddit API',
+  'openai.com': 'OpenAI',
+  'api.openai.com': 'OpenAI API',
+  'brave.com': 'Brave',
+  'api.search.brave.com': 'Brave Search API, a public search engine',
+  'anthropic.com': 'Anthropic',
+  'api.anthropic.com': 'Anthropic API',
+  'github.com': 'GitHub',
+  'api.github.com': 'GitHub API',
+  'raw.githubusercontent.com': 'GitHub raw content',
+  'googleapis.com': 'Google APIs',
+  'www.googleapis.com': 'Google APIs',
+  'x.com': 'X/Twitter',
+  'api.x.com': 'X/Twitter API',
+  'api.twitter.com': 'Twitter API',
+  'twitter.com': 'Twitter/X',
+  'youtube.com': 'YouTube',
+  'www.youtube.com': 'YouTube',
+  'pypi.org': 'Python Package Index',
+  'files.pythonhosted.org': 'Python package hosting',
+  'npmjs.org': 'npm registry',
+  'registry.npmjs.org': 'npm registry',
+  'www.npmjs.com': 'npm website',
+};
 
 // File extension helpers
 const CODE_EXTENSIONS = new Set(['.js', '.ts', '.py', '.sh', '.bash', '.rb', '.go', '.rs', '.java', '.php', '.pl', '.ps1', '.bat', '.cmd']);

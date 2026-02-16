@@ -249,23 +249,26 @@ describe('Documentation denoising', () => {
 describe('Known-safe allowlists', () => {
   it('should reduce severity for subprocess calling known-safe binaries', async () => {
     const r = await scanFixture('legit-research-skill');
-    // search.py calls subprocess.run(["bird", ...]) — should be allowlisted to LOW
+    // search.py calls subprocess.run(["bird", ...]) — allowlisted, drops one level (MEDIUM→LOW)
     const shellFindings = r.findings.filter(f => f.patternId === 'shell-exec' && f.file === 'search.py');
     for (const f of shellFindings) {
       assert.equal(f.severity, 'LOW',
-        `Shell exec calling bird should be LOW, got ${f.severity}`);
+        `Shell exec calling bird should be LOW (MEDIUM dropped one level), got ${f.severity}`);
       assert.ok(f.allowlisted, 'Should be marked as allowlisted');
+      assert.ok(f.context, 'Should have a context annotation');
     }
   });
 
   it('should reduce severity for network calls to known-safe domains', async () => {
     const r = await scanFixture('legit-research-skill');
-    // search.py calls reddit.com and brave.com — should be allowlisted
+    // search.py calls reddit.com and brave.com — allowlisted findings drop one level (MEDIUM→LOW)
+    // But import statements without a domain in surrounding context stay at MEDIUM
     const netFindings = r.findings.filter(f => f.patternId === 'network-activity' && f.file === 'search.py');
-    for (const f of netFindings) {
+    const allowlisted = netFindings.filter(f => f.allowlisted);
+    assert.ok(allowlisted.length >= 2, `Should have at least 2 allowlisted network findings, got ${allowlisted.length}`);
+    for (const f of allowlisted) {
       assert.equal(f.severity, 'LOW',
-        `Network activity to known-safe domain should be LOW, got ${f.severity}: ${f.snippet}`);
-      assert.ok(f.allowlisted, 'Should be marked as allowlisted');
+        `Allowlisted network activity should be LOW, got ${f.severity}: ${f.snippet}`);
     }
   });
 
@@ -311,7 +314,7 @@ describe('Known-safe allowlists', () => {
 describe('last30days skill (integration)', () => {
   const last30Path = '/tmp/last30days-skill';
 
-  it('should score B or better (not Grade F)', async () => {
+  it('should score B or C (65-85), not A or F', async () => {
     const fsModule = await import('fs');
     if (!fsModule.default.existsSync(last30Path)) {
       // Skip if not cloned
@@ -319,10 +322,132 @@ describe('last30days skill (integration)', () => {
     }
     const result = await analyzeSkill(last30Path);
     const scoreData = calculateScore(result.findings);
-    assert.ok(scoreData.score >= 80,
-      `last30days should score >= 80 (Grade B+), got ${scoreData.score} (Grade ${scoreData.grade})`);
+    assert.ok(scoreData.score >= 65,
+      `last30days should score >= 65, got ${scoreData.score} (Grade ${scoreData.grade})`);
+    assert.ok(scoreData.score <= 85,
+      `last30days should score <= 85 (not A), got ${scoreData.score} (Grade ${scoreData.grade})`);
     assert.ok(scoreData.grade !== 'F',
       `last30days should NOT get Grade F, got ${scoreData.grade}`);
+    assert.ok(scoreData.grade !== 'A',
+      `last30days should NOT get Grade A, got ${scoreData.grade}`);
+  });
+});
+
+// ─── CONTEXT ANNOTATIONS (v0.2.0) ───────────────────────────────
+
+describe('Context annotations', () => {
+  it('should add context to all findings', async () => {
+    const r = await scanFixture('legit-research-skill');
+    for (const f of r.findings) {
+      assert.ok(f.context, `Finding ${f.patternId} in ${f.file}:${f.line} should have context annotation`);
+      assert.ok(f.context.length > 10, `Context should be descriptive, got: "${f.context}"`);
+    }
+  });
+
+  it('should describe known-safe binaries in context', async () => {
+    const r = await scanFixture('legit-research-skill');
+    const birdFinding = r.findings.find(f => f.patternId === 'shell-exec' && f.allowlisted);
+    assert.ok(birdFinding, 'Should have an allowlisted shell-exec finding');
+    assert.ok(birdFinding.context.includes('bird') || birdFinding.context.includes('known'),
+      `Context should mention the binary: "${birdFinding.context}"`);
+  });
+
+  it('should describe known-safe domains in context', async () => {
+    const r = await scanFixture('legit-research-skill');
+    const netFinding = r.findings.find(f => f.patternId === 'network-activity' && f.allowlisted);
+    assert.ok(netFinding, 'Should have an allowlisted network finding');
+    assert.ok(netFinding.context.includes('reddit') || netFinding.context.includes('brave') || netFinding.context.includes('search'),
+      `Context should mention the domain: "${netFinding.context}"`);
+  });
+
+  it('should add context to non-allowlisted findings too', async () => {
+    const r = await scanFixture('malicious-exfil');
+    for (const f of r.findings) {
+      assert.ok(f.context, `Non-allowlisted finding ${f.patternId} should have context`);
+    }
+  });
+
+  it('should add doc context to documentation file findings', async () => {
+    const r = await scanFixture('doc-noise-skill');
+    const docFinding = r.findings.find(f => f.file.endsWith('.md'));
+    if (docFinding) {
+      assert.ok(docFinding.context, 'Doc file finding should have context');
+    }
+  });
+});
+
+// ─── REPORT GENERATION (v0.2.0) ─────────────────────────────────
+
+describe('Report generation', () => {
+  it('should generate JSON and Markdown reports via CLI', async () => {
+    const { execSync } = await import('child_process');
+    const fsModule = await import('fs');
+
+    // Run scanner with --report flag
+    execSync(`node src/cli.js ${path.join(fixtures, 'legit-research-skill')} --report`, {
+      cwd: path.join(__dirname, '..'),
+      stdio: 'pipe',
+    });
+
+    const reportDir = path.join(__dirname, '..', 'results', 'reports');
+    const jsonPath = path.join(reportDir, 'legit-research-skill.json');
+    const mdPath = path.join(reportDir, 'legit-research-skill.md');
+
+    assert.ok(fsModule.existsSync(jsonPath), 'JSON report should exist');
+    assert.ok(fsModule.existsSync(mdPath), 'Markdown report should exist');
+
+    // Validate JSON report structure
+    const report = JSON.parse(fsModule.readFileSync(jsonPath, 'utf-8'));
+    assert.ok(report.skillName, 'JSON report should have skillName');
+    assert.ok(report.grade, 'JSON report should have grade');
+    assert.ok(typeof report.score === 'number', 'JSON report should have numeric score');
+    assert.ok(report.filesScanned >= 0, 'JSON report should have filesScanned');
+    assert.ok(Array.isArray(report.findings), 'JSON report should have findings array');
+    assert.ok(report.timestamp, 'JSON report should have timestamp');
+    assert.ok(report.scannerVersion, 'JSON report should have scannerVersion');
+
+    // Validate findings have context
+    for (const f of report.findings) {
+      assert.ok(f.context !== undefined, `Report finding should have context field`);
+    }
+
+    // Validate Markdown report content
+    const md = fsModule.readFileSync(mdPath, 'utf-8');
+    assert.ok(md.includes('ClawRank Security Report'), 'MD report should have title');
+    assert.ok(md.includes('Grade'), 'MD report should mention grade');
+    assert.ok(md.includes('What to Consider'), 'MD report should have What to Consider section');
+
+    // Cleanup
+    fsModule.unlinkSync(jsonPath);
+    fsModule.unlinkSync(mdPath);
+  });
+});
+
+// ─── SEVERITY REDUCTION (v0.2.0) ────────────────────────────────
+
+describe('Severity reduction policy', () => {
+  it('should drop allowlisted findings by one level, not all the way to LOW', async () => {
+    // Test that CRITICAL allowlisted would become HIGH, not LOW
+    // We test indirectly: shell-exec is MEDIUM, drops to LOW (one level)
+    const r = await scanFixture('legit-research-skill');
+    const allowlisted = r.findings.filter(f => f.allowlisted);
+    assert.ok(allowlisted.length > 0, 'Should have allowlisted findings');
+    // All shell-exec (MEDIUM) allowlisted should be LOW (one drop)
+    const shellAllowlisted = allowlisted.filter(f => f.patternId === 'shell-exec');
+    for (const f of shellAllowlisted) {
+      assert.equal(f.severity, 'LOW', 'MEDIUM shell-exec should drop to LOW');
+    }
+  });
+
+  it('should NOT have rm in known-safe binaries', async () => {
+    const { KNOWN_SAFE_BINARIES } = await import('../src/patterns.js');
+    assert.ok(!KNOWN_SAFE_BINARIES.has('rm'), 'rm should not be in KNOWN_SAFE_BINARIES');
+  });
+
+  it('should NOT have localhost in known-safe domains', async () => {
+    const { KNOWN_SAFE_DOMAINS } = await import('../src/patterns.js');
+    assert.ok(!KNOWN_SAFE_DOMAINS.has('localhost'), 'localhost should not be in KNOWN_SAFE_DOMAINS');
+    assert.ok(!KNOWN_SAFE_DOMAINS.has('127.0.0.1'), '127.0.0.1 should not be in KNOWN_SAFE_DOMAINS');
   });
 });
 
