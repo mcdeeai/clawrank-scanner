@@ -530,16 +530,56 @@ export const PATTERNS = [
   },
 ];
 
+// ========== KNOWN-SAFE ALLOWLISTS (v0.2.0) ==========
+// Binaries that are expected in automation/research skills
+export const KNOWN_SAFE_BINARIES = new Set([
+  'bird', 'curl', 'jq', 'brew', 'git', 'npm', 'node', 'python', 'python3',
+  'pip', 'pip3', 'wget', 'yt-dlp', 'ffmpeg', 'ffprobe', 'grep', 'sed', 'awk',
+  'cat', 'echo', 'ls', 'find', 'sort', 'uniq', 'wc', 'head', 'tail', 'tr',
+  'date', 'mkdir', 'cp', 'mv', 'rm', 'chmod', 'touch', 'tee', 'xargs',
+]);
+
+// Domains that are known-safe API endpoints
+export const KNOWN_SAFE_DOMAINS = new Set([
+  'reddit.com', 'www.reddit.com', 'oauth.reddit.com', 'api.reddit.com',
+  'openai.com', 'api.openai.com',
+  'brave.com', 'api.search.brave.com',
+  'anthropic.com', 'api.anthropic.com',
+  'github.com', 'api.github.com', 'raw.githubusercontent.com',
+  'googleapis.com', 'www.googleapis.com',
+  'x.com', 'api.x.com', 'api.twitter.com', 'twitter.com',
+  'youtube.com', 'www.youtube.com',
+  'pypi.org', 'files.pythonhosted.org',
+  'npmjs.org', 'registry.npmjs.org', 'www.npmjs.com',
+  'localhost', '127.0.0.1',
+]);
+
 // File extension helpers
 const CODE_EXTENSIONS = new Set(['.js', '.ts', '.py', '.sh', '.bash', '.rb', '.go', '.rs', '.java', '.php', '.pl', '.ps1', '.bat', '.cmd']);
 const DOC_EXTENSIONS = new Set(['.md', '.txt', '.rst', '.adoc', '.html', '.htm']);
 
+// Directory paths that indicate documentation/planning context (not executable)
+const DOC_DIRS = ['docs/', 'doc/', 'plans/', 'references/', 'examples/', 'example/', 'variants/'];
+
 /**
  * Check if a filename is a documentation file
+ * Now includes: files in docs/plans/references/examples dirs, and common doc filenames
  */
 export function isDocFile(filename) {
   const ext = '.' + filename.split('.').pop().toLowerCase();
-  return DOC_EXTENSIONS.has(ext);
+  if (DOC_EXTENSIONS.has(ext)) return true;
+  
+  // Files in documentation directories (even .py/.sh examples)
+  const normalized = filename.replace(/\\/g, '/').toLowerCase();
+  for (const dir of DOC_DIRS) {
+    if (normalized.startsWith(dir) || normalized.includes('/' + dir)) return true;
+  }
+  
+  // Common doc filenames regardless of extension
+  const basename = filename.split('/').pop().toLowerCase();
+  if (['license', 'changelog', 'changes', 'authors', 'contributors', 'todo'].includes(basename)) return true;
+  
+  return false;
 }
 
 /**

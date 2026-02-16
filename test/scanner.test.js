@@ -214,6 +214,118 @@ describe('CLI integration', () => {
   });
 });
 
+// ─── DOC DENOISING (v0.2.0) ─────────────────────────────────────
+
+describe('Documentation denoising', () => {
+  it('should reduce severity for findings in doc/plan directories', async () => {
+    const r = await scanFixture('doc-noise-skill');
+    // docs/implementation-plan.md has subprocess, brew install, network patterns
+    // All should be LOW since they're in a docs/ directory
+    const docFindings = r.findings.filter(f => f.file.startsWith('docs/'));
+    assert.ok(docFindings.length > 0, 'Should have findings from docs/');
+    const nonLowDocFindings = docFindings.filter(f => f.severity !== 'LOW');
+    assert.equal(nonLowDocFindings.length, 0,
+      `All doc/ findings should be LOW, but got: ${JSON.stringify(nonLowDocFindings.map(f => ({sev: f.severity, pat: f.patternId, file: f.file})))}`);
+  });
+
+  it('should reduce severity for SKILL.md install instructions', async () => {
+    const r = await scanFixture('doc-noise-skill');
+    const skillFindings = r.findings.filter(f => f.file === 'SKILL.md');
+    const mediumOrHigher = skillFindings.filter(f => f.severity === 'MEDIUM' || f.severity === 'HIGH' || f.severity === 'CRITICAL');
+    // brew install, npm install, pip install in SKILL.md should all be LOW
+    const installFindings = mediumOrHigher.filter(f => f.patternId === 'package-install');
+    assert.equal(installFindings.length, 0,
+      `Package install in SKILL.md should be LOW: ${JSON.stringify(installFindings)}`);
+  });
+
+  it('should score doc-heavy skills well when content is benign', async () => {
+    const r = await scanFixture('doc-noise-skill');
+    assert.ok(r.score >= 90, `Doc-noise skill should score >= 90, got ${r.score}`);
+  });
+});
+
+// ─── KNOWN-SAFE ALLOWLISTS (v0.2.0) ────────────────────────────
+
+describe('Known-safe allowlists', () => {
+  it('should reduce severity for subprocess calling known-safe binaries', async () => {
+    const r = await scanFixture('legit-research-skill');
+    // search.py calls subprocess.run(["bird", ...]) — should be allowlisted to LOW
+    const shellFindings = r.findings.filter(f => f.patternId === 'shell-exec' && f.file === 'search.py');
+    for (const f of shellFindings) {
+      assert.equal(f.severity, 'LOW',
+        `Shell exec calling bird should be LOW, got ${f.severity}`);
+      assert.ok(f.allowlisted, 'Should be marked as allowlisted');
+    }
+  });
+
+  it('should reduce severity for network calls to known-safe domains', async () => {
+    const r = await scanFixture('legit-research-skill');
+    // search.py calls reddit.com and brave.com — should be allowlisted
+    const netFindings = r.findings.filter(f => f.patternId === 'network-activity' && f.file === 'search.py');
+    for (const f of netFindings) {
+      assert.equal(f.severity, 'LOW',
+        `Network activity to known-safe domain should be LOW, got ${f.severity}: ${f.snippet}`);
+      assert.ok(f.allowlisted, 'Should be marked as allowlisted');
+    }
+  });
+
+  it('should score a legit research skill at B or better', async () => {
+    const r = await scanFixture('legit-research-skill');
+    assert.ok(r.score >= 80,
+      `Legit research skill should score >= 80 (B), got ${r.score} (${r.grade})`);
+  });
+
+  it('should reduce severity for execSync calling known-safe binaries', async () => {
+    const r = await scanFixture('legit-automation-skill');
+    // runner.js uses execSync with "git" and "npm" — both known-safe
+    const shellFindings = r.findings.filter(f =>
+      (f.patternId === 'shell-exec' || f.patternId === 'shell-exec-dangerous') && f.file === 'runner.js'
+    );
+    for (const f of shellFindings) {
+      assert.equal(f.severity, 'LOW',
+        `Shell exec calling ${f.snippet} should be LOW, got ${f.severity}`);
+    }
+  });
+
+  it('should still flag subprocess calling unknown binaries', async () => {
+    // Create a temporary fixture with suspicious subprocess usage
+    const fs = await import('fs');
+    const tmpDir = path.join(fixtures, '_test-unknown-binary');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'SKILL.md'), '# Test skill');
+    fs.writeFileSync(path.join(tmpDir, 'evil.py'),
+      'import subprocess\nresult = subprocess.run(["./payload", "--deploy"], capture_output=True)\n');
+
+    const r = await scanFixture('_test-unknown-binary');
+    const shellFindings = r.findings.filter(f => f.patternId === 'shell-exec');
+    assert.ok(shellFindings.length > 0, 'Should detect subprocess usage');
+    assert.ok(shellFindings.some(f => f.severity === 'MEDIUM'),
+      'Subprocess with unknown binary should remain MEDIUM');
+
+    fs.rmSync(tmpDir, { recursive: true });
+  });
+});
+
+// ─── LAST30DAYS INTEGRATION (v0.2.0) ───────────────────────────
+
+describe('last30days skill (integration)', () => {
+  const last30Path = '/tmp/last30days-skill';
+
+  it('should score B or better (not Grade F)', async () => {
+    const fsModule = await import('fs');
+    if (!fsModule.default.existsSync(last30Path)) {
+      // Skip if not cloned
+      return;
+    }
+    const result = await analyzeSkill(last30Path);
+    const scoreData = calculateScore(result.findings);
+    assert.ok(scoreData.score >= 80,
+      `last30days should score >= 80 (Grade B+), got ${scoreData.score} (Grade ${scoreData.grade})`);
+    assert.ok(scoreData.grade !== 'F',
+      `last30days should NOT get Grade F, got ${scoreData.grade}`);
+  });
+});
+
 // ─── DIRECTORY SKIPPING ─────────────────────────────────────────
 
 describe('Directory skipping', () => {

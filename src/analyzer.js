@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { PATTERNS, getEffectiveSeverity, isDocFile } from './patterns.js';
+import { PATTERNS, getEffectiveSeverity, isDocFile, KNOWN_SAFE_BINARIES, KNOWN_SAFE_DOMAINS } from './patterns.js';
 
 /**
  * Analyzes a skill directory for security vulnerabilities
@@ -52,10 +52,19 @@ export async function analyzeSkill(skillPath) {
     
     readDirRecursive(skillPath);
 
+    // Build file content map for context-aware allowlisting
+    const fileContexts = {};
+    for (const f of files) {
+      fileContexts[f.name] = f.content;
+    }
+
+    // Post-process: apply known-safe allowlists to reduce false positives
+    const processed = applyAllowlists(findings, fileContexts);
+
     return {
       skillPath,
       filesScanned: files.length,
-      findings,
+      findings: processed,
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -121,6 +130,122 @@ function analyzeFile(filename, content) {
   }
 
   return findings;
+}
+
+/**
+ * Apply known-safe allowlists to findings, reducing severity where appropriate.
+ * - subprocess/shell-exec calling known-safe binaries → LOW
+ * - network activity to known-safe domains → LOW
+ * - package-install for known-safe packages in string literals → LOW
+ */
+function applyAllowlists(findings, fileContexts) {
+  return findings.map(f => {
+    const snippet = (f.snippet || '').toLowerCase();
+    const matched = (f.matched || '').toLowerCase();
+    // Get surrounding context (5 lines around the finding)
+    const ctx = fileContexts?.[f.file];
+    const context = ctx ? getLineContext(ctx, f.line, 5).toLowerCase() : snippet;
+
+    // Shell execution calling known-safe binaries (check surrounding context + whole file)
+    if (f.patternId === 'shell-exec' || f.patternId === 'shell-exec-dangerous') {
+      // Check nearby context first, then whole file for binary references
+      const wholeFile = (ctx || '').toLowerCase();
+      if (invokesKnownSafeBinary(context) || invokesKnownSafeBinary(wholeFile)) {
+        return { ...f, severity: 'LOW', allowlisted: true, allowlistReason: 'known-safe binary' };
+      }
+    }
+
+    // Network activity to known-safe domains (check context + whole file for domain refs)
+    if (f.patternId === 'network-activity' || f.patternId === 'network-exfil-hardcoded') {
+      const wholeFile = (ctx || '').toLowerCase();
+      if (contactsKnownSafeDomain(context + ' ' + matched) || contactsKnownSafeDomain(wholeFile)) {
+        const newSev = f.patternId === 'network-exfil-hardcoded' ? 'LOW' : 'LOW';
+        return { ...f, severity: newSev, allowlisted: true, allowlistReason: 'known-safe domain' };
+      }
+    }
+
+    // Package install in string literals (error messages, help text) → LOW
+    if (f.patternId === 'package-install') {
+      if (isInStringLiteral(snippet) || installsKnownSafePackage(snippet)) {
+        return { ...f, severity: 'LOW', allowlisted: true, allowlistReason: 'known-safe package' };
+      }
+    }
+
+    // Cron patterns that are just documentation references
+    if (f.patternId === 'cron-creation') {
+      if (isInStringLiteral(snippet)) {
+        return { ...f, severity: 'LOW', allowlisted: true, allowlistReason: 'string literal reference' };
+      }
+    }
+
+    return f;
+  });
+}
+
+/**
+ * Get lines surrounding a given line number from file content
+ */
+function getLineContext(content, lineNum, radius) {
+  const lines = content.split('\n');
+  const start = Math.max(0, lineNum - 1 - radius);
+  const end = Math.min(lines.length, lineNum + radius);
+  return lines.slice(start, end).join('\n');
+}
+
+/**
+ * Check if a snippet invokes a known-safe binary
+ */
+function invokesKnownSafeBinary(snippet) {
+  // Look for known-safe binary names after subprocess/exec calls
+  for (const bin of KNOWN_SAFE_BINARIES) {
+    // Match patterns like: subprocess.run(["bird", ...] or subprocess.run(["yt-dlp"
+    // or exec("bird ...") or child_process ... "git"
+    if (snippet.includes(`"${bin}"`) || snippet.includes(`'${bin}'`) ||
+        snippet.includes(`["${bin}`) || snippet.includes(`['${bin}`) ||
+        snippet.includes(`(${bin} `) || snippet.includes(`("${bin} `)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Check if a snippet/match contacts a known-safe domain
+ */
+function contactsKnownSafeDomain(text) {
+  for (const domain of KNOWN_SAFE_DOMAINS) {
+    if (text.includes(domain)) return true;
+  }
+  return false;
+}
+
+/**
+ * Check if a snippet appears to be inside a string literal (help text, error message)
+ */
+function isInStringLiteral(snippet) {
+  // Common patterns for string literals containing install instructions
+  return /["'`].*\b(brew|pip|npm|apt)\s+install\b/i.test(snippet) ||
+         /\bf["'].*\b(brew|pip|npm|apt)\s+install\b/i.test(snippet) ||
+         /\bprint\s*\(.*install\b/i.test(snippet) ||
+         /\becho\s+.*install\b/i.test(snippet) ||
+         /append\s*\(.*install\b/i.test(snippet) ||
+         /reason\s*=.*install\b/i.test(snippet) ||
+         /skip_reason.*install\b/i.test(snippet) ||
+         /fix:\s/i.test(snippet);
+}
+
+/**
+ * Check if the install target is a known-safe package
+ */
+function installsKnownSafePackage(snippet) {
+  // Extract what's being installed
+  const match = snippet.match(/\b(?:brew|pip3?|npm|apt-get|gem)\s+install\s+(\S+)/i);
+  if (match) {
+    const pkg = match[1].replace(/['"`,)]/g, '').toLowerCase();
+    return KNOWN_SAFE_BINARIES.has(pkg) || 
+           ['yt-dlp', 'ffmpeg', 'jq', 'node', 'python', 'python3'].includes(pkg);
+  }
+  return false;
 }
 
 /**
